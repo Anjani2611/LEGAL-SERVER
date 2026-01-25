@@ -1,0 +1,37 @@
+# Build artifacts
+build/
+cmake-build-*/
+dist/
+*.o
+*.a
+*.so
+*.dylib
+
+# IDE files
+.idea/
+.vscode/
+.cproject
+.project
+*.layout
+*.depend
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Executables
+legal-server
+legal-server-tests
+
+# Logs
+*.log
+Testing/
+
+# Config secrets
+config/prod.json
+config/staging.json
+.env
+
+# Temporary
+*.tmp
+.cache/
