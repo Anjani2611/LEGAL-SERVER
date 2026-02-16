@@ -270,8 +270,8 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) file for
 ## 👤 Author
 
 **Anjani**
-- GitHub: [@YOUR_USERNAME](https://github.com/anjani2611)
-- Project Link: [https://github.com/YOUR_USERNAME/legal-server](https://github.com/anjani2611/legal-server)
+- GitHub: [@anjani2611](https://github.com/anjani2611)
+- Project Link: [https://github.com/anjani2611/legal-server](https://github.com/anjani2611/legal-server)
 
 ## 🙏 Acknowledgments
 
