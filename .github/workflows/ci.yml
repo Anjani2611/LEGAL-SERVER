@@ -1,0 +1,52 @@
+name: CI Build & Test
+
+on:
+  push:
+    branches: [ master, develop ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    name: Build on Ubuntu 22.04
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          cmake \
+          git \
+          libboost-all-dev \
+          nlohmann-json3-dev \
+          libspdlog-dev \
+          libpq-dev \
+          libssl-dev
+
+    - name: Configure CMake
+      run: |
+        mkdir build
+        cd build
+        cmake -DCMAKE_BUILD_TYPE=Release ..
+
+    - name: Build
+      run: |
+        cd build
+        make -j$(nproc)
+
+    - name: Run tests
+      run: |
+        cd build
+        # ./legal-server-tests (uncomment when tests are added)
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: legal-server-binary
+        path: build/legal-server
+        retention-days: 7
