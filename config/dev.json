@@ -1,0 +1,23 @@
+{
+    "server": {
+        "host": "0.0.0.0",
+        "port": 8080,
+        "thread_pool_size": 4,
+        "request_timeout_ms": 30000
+    },
+    "logging": {
+        "level": "debug",
+        "file": "logs/legal-server.log"
+    },
+    "database": {
+        "connection_string": "",
+        "pool_size": 5
+    },
+    "redis": {
+        "uri": "",
+        "pool_size": 5
+    },
+    "ml_models": {
+        "models_path": "./models"
+    }
+}

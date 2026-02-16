@@ -1,18 +1,24 @@
 #include <iostream>
 #include <memory>
 #include <csignal>
-#include <chrono>
-#include <thread>
+#include <ctime>
+#include <nlohmann/json.hpp>
 
+#include "server/HttpServer.h"
+#include "server/Config.h"
 #include "utils/Logger.h"
 
-// Global logger for signal handling
+using json = nlohmann::json;
+
+// Global pointers for graceful shutdown
+std::unique_ptr<HttpServer> g_server;
 std::shared_ptr<Logger> g_logger;
 
 void signalHandler(int signal) {
     if (signal == SIGTERM || signal == SIGINT) {
-        if (g_logger) {
-            g_logger->warn("Received signal {}. Shutting down gracefully...", signal);
+        g_logger->warn("Received signal {}. Shutting down gracefully...", signal);
+        if (g_server) {
+            g_server->stop();
         }
         exit(0);
     }
@@ -20,43 +26,116 @@ void signalHandler(int signal) {
 
 int main(int argc, char* argv[]) {
     try {
+        // Load configuration file
+        std::string config_file = "config/dev.json";
+        if (argc > 1) {
+            config_file = argv[1];
+        }
+
+        std::cout << "Loading configuration from: " << config_file << std::endl;
+        auto config = Config::loadFromFile(config_file);
+
         // Initialize logger
-        g_logger = Logger::create("legal-server");
+        g_logger = Logger::create(
+            "legal-server",
+            config->getLogFile(),
+            config->getLogLevel()
+        );
 
-        g_logger->info("================================");
-        g_logger->info("Legal Document Processing Server");
-        g_logger->info("================================");
-        g_logger->info("Version: 1.0.0");
-        g_logger->info("Build: Release");
-        g_logger->info("C++ Standard: C++20");
-        g_logger->info("Compiler: g++ 11.4.0");
+        g_logger->info("========================================");
+        g_logger->info("Legal Document Processing Server v1.0.0");
+        g_logger->info("========================================");
+        g_logger->info("Configuration file: {}", config_file);
+        g_logger->info("Log level: {}", config->getLogLevel());
 
-        // Setup signal handlers
+        // Setup signal handlers for graceful shutdown
         std::signal(SIGINT, signalHandler);
         std::signal(SIGTERM, signalHandler);
 
-        g_logger->info("Logger initialized successfully!");
-        g_logger->info("Project location: D:\\dev\\legal-server");
-        g_logger->info("Signal handlers registered");
+        // Create HTTP server
+        g_server = std::make_unique<HttpServer>(
+            config->getServerHost(),
+            config->getServerPort(),
+            config->getThreadPoolSize(),
+            g_logger
+        );
 
-        // Demonstrate different log levels
-        g_logger->debug("This is a debug message");
-        g_logger->info("This is an info message");
-        g_logger->warn("This is a warning message");
-        g_logger->error("This is an error message");
+        // Set request handler (Week 1: Health + Echo endpoints)
+        g_server->setRequestHandler(
+            [&g_logger](const std::string& method,
+                       const std::string& path,
+                       const std::string& body,
+                       std::string& response) {
 
-        g_logger->info("Startup complete. Press Ctrl+C to exit.");
+                g_logger->info("Request: {} {}", method, path);
 
-        // Keep running until interrupted
+                // Health check endpoint
+                if (path == "/health" && method == "GET") {
+                    json health_response = {
+                        {"status", "healthy"},
+                        {"service", "legal-server"},
+                        {"version", "1.0.0"},
+                        {"timestamp", std::time(nullptr)},
+                        {"week", 1}
+                    };
+                    response = health_response.dump(2);  // Pretty print
+                    g_logger->info("Health check OK");
+                    return;
+                }
+
+                // Echo endpoint for testing
+                if (path == "/echo" && method == "POST") {
+                    try {
+                        auto request_json = json::parse(body);
+                        json echo_response = {
+                            {"received", request_json},
+                            {"timestamp", std::time(nullptr)},
+                            {"message", "Echo successful"}
+                        };
+                        response = echo_response.dump(2);
+                        g_logger->info("Echo request processed");
+                        return;
+                    } catch (const json::exception& e) {
+                        json error_response = {
+                            {"error", "Invalid JSON"},
+                            {"message", e.what()}
+                        };
+                        response = error_response.dump(2);
+                        g_logger->error("Echo request failed: {}", e.what());
+                        return;
+                    }
+                }
+
+                // Default 404 response
+                json not_found = {
+                    {"error", "Not Found"},
+                    {"path", path},
+                    {"method", method},
+                    {"available_endpoints", {
+                        {"GET /health", "Health check"},
+                        {"POST /echo", "Echo test"}
+                    }}
+                };
+                response = not_found.dump(2);
+                g_logger->warn("404 Not Found: {} {}", method, path);
+            }
+        );
+
+        g_logger->info("Server starting on {}:{}",
+                      config->getServerHost(),
+                      config->getServerPort());
+        g_logger->info("Press Ctrl+C to stop the server");
+        g_logger->info("========================================");
+
+        g_server->start();
+
+        // Block main thread forever (signal handler will exit)
         while (true) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
         }
 
     } catch (const std::exception& e) {
         std::cerr << "FATAL ERROR: " << e.what() << std::endl;
-        if (g_logger) {
-            g_logger->error("Startup failed: {}", e.what());
-        }
         return 1;
     }
 
