@@ -7,16 +7,23 @@
 #include "server/HttpServer.h"
 #include "server/Config.h"
 #include "utils/Logger.h"
+#include "handlers/RequestHandler.h"
+#include "services/LegalService.h"
+#include "services/MLInferenceService.h"
 
 using json = nlohmann::json;
 
-// Global pointers for graceful shutdown
+class DocumentRepository;
+class RedisCache;
+
 std::unique_ptr<HttpServer> g_server;
 std::shared_ptr<Logger> g_logger;
 
 void signalHandler(int signal) {
     if (signal == SIGTERM || signal == SIGINT) {
-        g_logger->warn("Received signal {}. Shutting down gracefully...", signal);
+        if (g_logger) {
+            g_logger->warn("Received signal {}. Shutting down gracefully...", signal);
+        }
         if (g_server) {
             g_server->stop();
         }
@@ -26,7 +33,6 @@ void signalHandler(int signal) {
 
 int main(int argc, char* argv[]) {
     try {
-        // Load configuration file
         std::string config_file = "config/dev.json";
         if (argc > 1) {
             config_file = argv[1];
@@ -35,7 +41,6 @@ int main(int argc, char* argv[]) {
         std::cout << "Loading configuration from: " << config_file << std::endl;
         auto config = Config::loadFromFile(config_file);
 
-        // Initialize logger
         g_logger = Logger::create(
             "legal-server",
             config->getLogFile(),
@@ -48,11 +53,31 @@ int main(int argc, char* argv[]) {
         g_logger->info("Configuration file: {}", config_file);
         g_logger->info("Log level: {}", config->getLogLevel());
 
-        // Setup signal handlers for graceful shutdown
         std::signal(SIGINT, signalHandler);
         std::signal(SIGTERM, signalHandler);
 
-        // Create HTTP server
+        std::shared_ptr<DocumentRepository> db = nullptr;
+        std::shared_ptr<RedisCache> cache = nullptr;
+
+        auto ml_service = std::make_shared<MLInferenceService>(
+            config->getMLModelsPath(),
+            g_logger,
+            cache
+        );
+
+        auto legal_service = std::make_shared<LegalService>(
+            g_logger,
+            db,
+            cache,
+            ml_service
+        );
+
+        auto request_handler = std::make_shared<RequestHandler>(
+            g_logger,
+            legal_service,
+            cache
+        );
+
         g_server = std::make_unique<HttpServer>(
             config->getServerHost(),
             config->getServerPort(),
@@ -60,76 +85,23 @@ int main(int argc, char* argv[]) {
             g_logger
         );
 
-        // Set request handler (Week 1: Health + Echo endpoints)
         g_server->setRequestHandler(
-            [&g_logger](const std::string& method,
-                       const std::string& path,
-                       const std::string& body,
-                       std::string& response) {
-
-                g_logger->info("Request: {} {}", method, path);
-
-                // Health check endpoint
-                if (path == "/health" && method == "GET") {
-                    json health_response = {
-                        {"status", "healthy"},
-                        {"service", "legal-server"},
-                        {"version", "1.0.0"},
-                        {"timestamp", std::time(nullptr)},
-                        {"week", 1}
-                    };
-                    response = health_response.dump(2);  // Pretty print
-                    g_logger->info("Health check OK");
-                    return;
-                }
-
-                // Echo endpoint for testing
-                if (path == "/echo" && method == "POST") {
-                    try {
-                        auto request_json = json::parse(body);
-                        json echo_response = {
-                            {"received", request_json},
-                            {"timestamp", std::time(nullptr)},
-                            {"message", "Echo successful"}
-                        };
-                        response = echo_response.dump(2);
-                        g_logger->info("Echo request processed");
-                        return;
-                    } catch (const json::exception& e) {
-                        json error_response = {
-                            {"error", "Invalid JSON"},
-                            {"message", e.what()}
-                        };
-                        response = error_response.dump(2);
-                        g_logger->error("Echo request failed: {}", e.what());
-                        return;
-                    }
-                }
-
-                // Default 404 response
-                json not_found = {
-                    {"error", "Not Found"},
-                    {"path", path},
-                    {"method", method},
-                    {"available_endpoints", {
-                        {"GET /health", "Health check"},
-                        {"POST /echo", "Echo test"}
-                    }}
-                };
-                response = not_found.dump(2);
-                g_logger->warn("404 Not Found: {} {}", method, path);
+            [request_handler](const std::string& method,
+                              const std::string& path,
+                              const std::string& body,
+                              std::string& response) {
+                request_handler->handleRequest(method, path, body, response);
             }
         );
 
         g_logger->info("Server starting on {}:{}",
-                      config->getServerHost(),
-                      config->getServerPort());
+                       config->getServerHost(),
+                       config->getServerPort());
         g_logger->info("Press Ctrl+C to stop the server");
         g_logger->info("========================================");
 
         g_server->start();
 
-        // Block main thread forever (signal handler will exit)
         while (true) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
         }
